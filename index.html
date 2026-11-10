@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>텍스트 비교</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #6b7280; --line: #e3e6eb;
+    --del-bg: #fde8e8; --del-hi: #f5b5b5; --add-bg: #e3f6e8; --add-hi: #a6e3b5;
+    --accent: #2563eb; --accent-text: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161b; --panel: #1c1f26; --text: #e6e8ec; --muted: #9aa1ad; --line: #2c313b;
+      --del-bg: #3a1f22; --del-hi: #6e2b31; --add-bg: #1a3324; --add-hi: #23633a;
+      --accent: #3b82f6; --accent-text: #fff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Malgun Gothic", sans-serif; }
+  main { max-width: 1400px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  .inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  textarea { width: 100%; height: 260px; resize: vertical; padding: 10px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel); color: var(--text); font: 13px/1.5 ui-monospace, Consolas, "D2Coding", monospace; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 20px; }
+  button { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  #status { color: var(--muted); font-size: 13px; }
+  .summary { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .summary b.del { color: #c0392b; } .summary b.add { color: #1e8449; }
+  .result { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; font: 13px/1.5 ui-monospace, Consolas, "D2Coding", monospace; }
+  td { vertical-align: top; padding: 0 8px; white-space: pre-wrap; word-break: break-all; }
+  td.no { width: 48px; text-align: right; color: var(--muted); user-select: none; border-right: 1px solid var(--line); }
+  td.code + td.no { border-left: 1px solid var(--line); }
+  td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
+  td.del del { background: var(--del-hi); text-decoration: none; }
+  td.add ins { background: var(--add-hi); text-decoration: none; }
+  td.empty { background: repeating-linear-gradient(135deg, transparent 0 6px, var(--line) 6px 7px); }
+  @media (max-width: 720px) {
+    .inputs { grid-template-columns: 1fr; }
+    textarea { height: 180px; }
+    td.no { width: 32px; padding: 0 4px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>텍스트 비교</h1>
+  <div class="inputs">
+    <div><label for="a">원본</label><textarea id="a" spellcheck="false"></textarea></div>
+    <div><label for="b">변경본</label><textarea id="b" spellcheck="false"></textarea></div>
+  </div>
+  <div class="bar">
+    <button class="primary" id="compare">비교하기</button>
+    <button id="share">링크 만들기</button>
+    <button id="swap">좌우 바꾸기</button>
+    <span id="status" role="status"></span>
+  </div>
+  <div id="out"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.2.0/diff.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const splitLines = v => { const l = v.split('\n'); if (l[l.length - 1] === '') l.pop(); return l; };
+
+// 한 줄 안에서 바뀐 글자만 강조
+function inline(oldL, newL) {
+  let o = '', n = '';
+  for (const p of Diff.diffChars(oldL, newL)) {
+    const t = esc(p.value);
+    if (p.removed) o += `<del>${t}</del>`;
+    else if (p.added) n += `<ins>${t}</ins>`;
+    else { o += t; n += t; }
+  }
+  return [o, n];
+}
+
+function render() {
+  const a = $('a').value, b = $('b').value;
+  const rows = []; let ln = 1, rn = 1, dels = 0, adds = 0;
+  const parts = Diff.diffLines(a, b);
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (!p.added && !p.removed) {
+      for (const l of splitLines(p.value)) rows.push([ln++, '', esc(l), rn++, '', esc(l)]);
+    } else if (p.removed) {
+      const old = splitLines(p.value);
+      const nxt = parts[i + 1] && parts[i + 1].added ? splitLines(parts[++i].value) : [];
+      dels += old.length; adds += nxt.length;
+      for (let k = 0; k < Math.max(old.length, nxt.length); k++) {
+        const o = old[k], n = nxt[k];
+        const [oh, nh] = o !== undefined && n !== undefined ? inline(o, n) : [esc(o ?? ''), esc(n ?? '')];
+        rows.push([o !== undefined ? ln++ : '', o !== undefined ? 'del' : 'empty', oh,
+                   n !== undefined ? rn++ : '', n !== undefined ? 'add' : 'empty', nh]);
+      }
+    } else {
+      const nl = splitLines(p.value); adds += nl.length;
+      for (const l of nl) rows.push(['', 'empty', '', rn++, 'add', esc(l)]);
+    }
+  }
+  const body = rows.map(r =>
+    `<tr><td class="no">${r[0]}</td><td class="code ${r[1]}">${r[2]}</td><td class="no">${r[3]}</td><td class="code ${r[4]}">${r[5]}</td></tr>`).join('');
+  $('out').innerHTML = (dels || adds
+      ? `<div class="summary"><b class="del">-${dels}줄 삭제</b> &nbsp; <b class="add">+${adds}줄 추가</b></div>`
+      : `<div class="summary">두 텍스트가 같습니다.</div>`)
+    + `<div class="result"><table>${body}</table></div>`;
+}
+
+// 링크: 두 텍스트를 압축해 주소의 # 뒤에 담는다(서버로 전송되지 않음)
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64url = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+async function pack(obj) {
+  const stream = new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  const buf = await new Response(stream).arrayBuffer();
+  // shortcut: String.fromCharCode(...) 스프레드는 수 MB 이상에서 터질 수 있음, 큰 입력 필요하면 청크 처리로
+  return b64url(buf);
+}
+async function unpack(s) {
+  const stream = new Blob([unb64url(s)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return JSON.parse(await new Response(stream).text());
+}
+
+$('compare').onclick = render;
+$('swap').onclick = () => { [$('a').value, $('b').value] = [$('b').value, $('a').value]; render(); };
+$('share').onclick = async () => {
+  render();
+  const url = location.href.split('#')[0] + '#' + await pack({ a: $('a').value, b: $('b').value });
+  history.replaceState(null, '', url);
+  try { await navigator.clipboard.writeText(url); $('status').textContent = '링크를 복사했습니다.'; }
+  catch { $('status').textContent = '주소창의 링크를 복사해서 공유하세요.'; }
+};
+
+(async () => {
+  const h = location.hash.slice(1);
+  if (!h) return;
+  try { const d = await unpack(h); $('a').value = d.a ?? ''; $('b').value = d.b ?? ''; render(); }
+  catch { $('status').textContent = '링크가 손상되어 내용을 불러오지 못했습니다.'; }
+})();
+</script>
+</body>
+</html>
