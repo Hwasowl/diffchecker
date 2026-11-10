@@ -136,12 +136,14 @@ $('share').onclick = async () => {
   catch { $('status').textContent = '주소창의 링크를 복사해서 공유하세요.'; }
 };
 
-(async () => {
+async function load() {
   const h = location.hash.slice(1);
   if (!h) return;
   try { const d = await unpack(h); $('a').value = d.a ?? ''; $('b').value = d.b ?? ''; render(); }
   catch { $('status').textContent = '링크가 손상되어 내용을 불러오지 못했습니다.'; }
-})();
+}
+addEventListener('hashchange', load);
+load();
 </script>
 </body>
 </html>
