@@ -64,6 +64,7 @@
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.2.0/diff.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lzma@2.3.2/src/lzma_worker-min.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -117,13 +118,16 @@ function render() {
 // 링크: 두 텍스트를 압축해 주소의 # 뒤에 담는다(서버로 전송되지 않음)
 const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const unb64url = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+// 새 링크는 LZMA(창이 커서 원본/변경본 중복을 거의 다 걸러냄), '~'로 시작. 예전 deflate 링크도 계속 열림
+const lzma = (fn, input, mode) => new Promise((ok, fail) =>
+  LZMA[fn](...(mode ? [input, mode] : [input]), (r, e) => e ? fail(e) : ok(r)));
 async function pack(obj) {
-  const stream = new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
-  const buf = await new Response(stream).arrayBuffer();
+  const bytes = await lzma('compress', JSON.stringify(obj), 9);
   // shortcut: String.fromCharCode(...) 스프레드는 수 MB 이상에서 터질 수 있음, 큰 입력 필요하면 청크 처리로
-  return b64url(buf);
+  return '~' + b64url(new Uint8Array(bytes));
 }
 async function unpack(s) {
+  if (s[0] === '~') return JSON.parse(await lzma('decompress', unb64url(s.slice(1))));
   const stream = new Blob([unb64url(s)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
   return JSON.parse(await new Response(stream).text());
 }
