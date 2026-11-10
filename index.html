@@ -84,7 +84,9 @@ function inline(oldL, newL) {
 function render() {
   const a = $('a').value, b = $('b').value;
   const rows = []; let ln = 1, rn = 1, dels = 0, adds = 0;
-  const parts = Diff.diffLines(a, b);
+  // 마지막 줄 끝 줄바꿈 유무 차이로 같은 줄이 바뀐 것처럼 보이지 않게 맞춤
+  const nl = s => s && !s.endsWith('\n') ? s + '\n' : s;
+  const parts = Diff.diffLines(nl(a), nl(b));
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
     if (!p.added && !p.removed) {
